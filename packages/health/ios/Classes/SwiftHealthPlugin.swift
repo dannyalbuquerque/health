@@ -7,6 +7,7 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
     let healthStore = HKHealthStore()
     var healthDataTypes = [HKSampleType]()
     var heartRateEventTypes = Set<HKSampleType>()
+    var seriesTypes = Set<HKSampleType>()
     var allDataTypes = Set<HKSampleType>()
     var dataTypesDict: [String: HKSampleType] = [:]
     var unitDict: [String: HKUnit] = [:]
@@ -47,6 +48,7 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
     let SLEEP_AWAKE = "SLEEP_AWAKE"
     let EXERCISE_TIME = "EXERCISE_TIME"
     let WORKOUT = "WORKOUT"
+    let HEARTBEAT = "HEARTBEAT"
 
     struct PluginError: Error {
         let message: String
@@ -88,6 +90,11 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
         /// Handle hasPermission
         else if (call.method.elementsEqual("hasPermissions")){
             try! hasPermissions(call: call, result: result)
+        }
+        
+        /// Handle getHeartbeatData
+        else if (call.method.elementsEqual("getHeartbeatData")){
+                getHeartbeatData(call: call, result: result)
         }
     }
 
@@ -286,6 +293,23 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
                     result(dictionaries)
                 }
                 
+            case let (samplesSeries as [HKSeriesSample]) as Any:
+                
+                let dictionaries = samplesSeries.map { sample -> NSDictionary in
+                    return [
+                        "uuid": "\(sample.uuid)",
+                        "value": Int(sample.count),
+                        "date_from": Int(sample.startDate.timeIntervalSince1970 * 1000),
+                        "date_to": Int(sample.endDate.timeIntervalSince1970 * 1000),
+                        "source_id": sample.sourceRevision.source.bundleIdentifier,
+                        "source_name": sample.sourceRevision.source.name
+                    ]
+                }
+                
+                DispatchQueue.main.async {
+                    result(dictionaries)
+                }
+                
             default:
                 DispatchQueue.main.async {
                     result(nil)
@@ -337,6 +361,54 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
 
         HKHealthStore().execute(query)
     }
+    
+    func getHeartbeatData(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        if #available(iOS 13.0, *) {
+       let arguments = call.arguments as? NSDictionary
+       let sampleUuid = UUID(uuidString: (arguments?["sampleUuid"] as? String) ?? "\(UUID())")
+
+       let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+            let query = HKSampleQuery(sampleType: HKSeriesType.heartbeat(),
+                                      predicate: nil,
+                                      limit: HKObjectQueryNoLimit,
+                                      sortDescriptors: [sortDescriptor]) { (_, samples, _) in
+                for sample in samples ?? [] {
+                    if sample.uuid == sampleUuid {
+                        var heartbeatData: [NSDictionary] = []
+                            let seriesQuery = HKHeartbeatSeriesQuery(heartbeatSeries: sample as! HKHeartbeatSeriesSample) { [self]
+                                query, timeSinceSeriesStart, precededByGap, done, error in
+                                if let error = error {
+                                    print("Error getting heartbeat data \(error.localizedDescription)")
+                                    DispatchQueue.main.async {
+                                        result(nil)
+                                    }
+                                    return
+                                }
+                                heartbeatData.append([
+                                    "timeSinceSeriesStart": timeSinceSeriesStart,
+                                    "precededByGap": precededByGap,
+                                ])
+                                if done {
+                                    DispatchQueue.main.async {
+                                        result(heartbeatData)
+                                    }
+                                }
+                            }
+
+                        HKHealthStore().execute(seriesQuery)
+                        break
+                    }
+                }
+            }
+            HKHealthStore().execute(query)
+
+        } else {
+            DispatchQueue.main.async {
+                result(nil)
+            }
+            return
+        }
+   }
 
     func unitLookUp(key: String) -> HKUnit {
         guard let unit = unitDict[key] else {
@@ -385,6 +457,7 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
         unitDict[SLEEP_AWAKE] = HKUnit.init(from: "")
         unitDict[EXERCISE_TIME] =  HKUnit.minute()
         unitDict[WORKOUT] = HKUnit.init(from: "")
+        unitDict[HEARTBEAT] = HKUnit.count()
 
         // Set up iOS 11 specific types (ordinary health data types)
         if #available(iOS 11.0, *) {
@@ -436,8 +509,15 @@ public class SwiftHealthPlugin: NSObject, FlutterPlugin {
                 ])
         }
 
+        if #available(iOS 13.0, *){
+            dataTypesDict[HEARTBEAT] = HKSeriesType.heartbeat()
+            seriesTypes =  Set([
+                HKSeriesType.heartbeat()
+                ])
+        }
+
         // Concatenate heart events and health data types (both may be empty)
-        allDataTypes = Set(heartRateEventTypes + healthDataTypes)
+        allDataTypes = Set(heartRateEventTypes + healthDataTypes + seriesTypes)
     }
 }
 

@@ -12,17 +12,20 @@ class HealthDataPoint {
   String _deviceId;
   String _sourceId;
   String _sourceName;
+  String _uuid;
 
   HealthDataPoint(
-      this._value,
-      this._type,
-      this._unit,
-      this._dateFrom,
-      this._dateTo,
-      this._platform,
-      this._deviceId,
-      this._sourceId,
-      this._sourceName) {
+    this._value,
+    this._type,
+    this._unit,
+    this._dateFrom,
+    this._dateTo,
+    this._platform,
+    this._deviceId,
+    this._sourceId,
+    this._sourceName,
+    this._uuid,
+  ) {
     // set the value to minutes rather than the category
     // returned by the native API
     if (type == HealthDataType.MINDFULNESS ||
@@ -51,7 +54,8 @@ class HealthDataPoint {
           PlatformTypeJsonValue.values.toList().indexOf(json['platform_type'])],
       json['platform_type'],
       json['source_id'],
-      json['source_name']);
+      json['source_name'],
+      json['uuid']);
 
   /// Converts the [HealthDataPoint] to a json object
   Map<String, dynamic> toJson() => {
@@ -63,7 +67,8 @@ class HealthDataPoint {
         'platform_type': PlatformTypeJsonValue[platform],
         'device_id': deviceId,
         'source_id': sourceId,
-        'source_name': sourceName
+        'source_name': sourceName,
+        'uuid': uuid,
       };
 
   @override
@@ -75,7 +80,8 @@ class HealthDataPoint {
       'dataType: $type, '
       'platform: $platform, '
       'sourceId: $sourceId, '
-      'sourceName: $sourceName';
+      'sourceName: $sourceName, '
+      'uuid: $uuid';
 
   /// The quantity value of the data point
   num get value => _value;
@@ -110,6 +116,8 @@ class HealthDataPoint {
   /// The name of the source from which the data point was fetched.
   String get sourceName => _sourceName;
 
+  String get uuid => _uuid;
+
   @override
   bool operator ==(Object o) {
     return o is HealthDataPoint &&
@@ -121,7 +129,8 @@ class HealthDataPoint {
         this.platform == o.platform &&
         this.deviceId == o.deviceId &&
         this.sourceId == o.sourceId &&
-        this.sourceName == o.sourceName;
+        this.sourceName == o.sourceName &&
+        this.uuid == o.uuid;
   }
 
   @override

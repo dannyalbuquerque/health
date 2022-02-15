@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:health/health.dart';
 
@@ -20,6 +21,7 @@ enum AppState {
   DATA_ADDED,
   DATA_NOT_ADDED,
   STEPS_READY,
+  HEARTBEAT_READY,
 }
 
 class _HealthAppState extends State<HealthApp> {
@@ -27,6 +29,7 @@ class _HealthAppState extends State<HealthApp> {
   AppState _state = AppState.DATA_NOT_FETCHED;
   int _nofSteps = 10;
   double _mgdl = 10.0;
+  List<HealthHeartbeat> _heartbeatDataList = [];
 
   // create a HealthFactory for use in the app
   HealthFactory health = HealthFactory();
@@ -37,10 +40,8 @@ class _HealthAppState extends State<HealthApp> {
 
     // define the types to get
     final types = [
-      HealthDataType.STEPS,
-      HealthDataType.WEIGHT,
-      HealthDataType.HEIGHT,
-      HealthDataType.BLOOD_GLUCOSE,
+      HealthDataType.HEART_RATE_VARIABILITY_SDNN,
+      HealthDataType.HEARTBEAT,
       // Uncomment this line on iOS - only available on iOS
       // HealthDataType.DISTANCE_WALKING_RUNNING,
     ];
@@ -49,13 +50,11 @@ class _HealthAppState extends State<HealthApp> {
     final permissions = [
       HealthDataAccess.READ,
       HealthDataAccess.READ,
-      HealthDataAccess.READ,
-      HealthDataAccess.READ,
     ];
 
     // get data within the last 24 hours
     final now = DateTime.now();
-    final yesterday = now.subtract(Duration(days: 1));
+    final yesterday = now.subtract(Duration(days: 60));
 
     // requesting access to the data types before reading them
     // note that strictly speaking, the [permissions] are not
@@ -155,6 +154,35 @@ class _HealthAppState extends State<HealthApp> {
     }
   }
 
+  /// Fetch heartbeat data from the health plugin and show them in the app.
+  Future fetchHeartbeatData() async {
+    List<HealthHeartbeat> heartbeatData = [];
+
+    final sampleUuid = "8C78954C-F494-4DD4-B176-32247A1F1B78";
+
+    bool requested = await health.requestAuthorization(
+        [HealthDataType.HEARTBEAT, HealthDataType.HEART_RATE_VARIABILITY_SDNN]);
+
+    if (requested) {
+      try {
+        heartbeatData = await health.getHeartbeatData(sampleUuid);
+      } catch (error) {
+        print("Caught exception in getHeartbeatData: $error");
+      }
+
+      print('Heartbeat data: $heartbeatData');
+
+      setState(() {
+        _heartbeatDataList = heartbeatData;
+        _state =
+            heartbeatData.isEmpty ? AppState.NO_DATA : AppState.HEARTBEAT_READY;
+      });
+    } else {
+      print("Authorization not granted");
+      setState(() => _state = AppState.DATA_NOT_FETCHED);
+    }
+  }
+
   Widget _contentFetchingData() {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -211,6 +239,19 @@ class _HealthAppState extends State<HealthApp> {
     return Text('Total number of steps: $_nofSteps');
   }
 
+  Widget _heartbeatDataFetched() {
+    //return Text(_heartbeatDataList.toString());
+    return ListView.builder(
+        itemCount: _heartbeatDataList.length,
+        itemBuilder: (_, index) {
+          HealthHeartbeat h = _heartbeatDataList[index];
+          return ListTile(
+            title: Text("timeSinceSeriesStart: ${h.timeSinceSeriesStart}"),
+            subtitle: Text("precededByGap: ${h.precededByGap}"),
+          );
+        });
+  }
+
   Widget _dataNotAdded() {
     return Text('Failed to add data');
   }
@@ -228,6 +269,8 @@ class _HealthAppState extends State<HealthApp> {
       return _dataAdded();
     else if (_state == AppState.STEPS_READY)
       return _stepsFetched();
+    else if (_state == AppState.HEARTBEAT_READY)
+      return _heartbeatDataFetched();
     else if (_state == AppState.DATA_NOT_ADDED) return _dataNotAdded();
 
     return _contentNotFetched();
@@ -257,7 +300,13 @@ class _HealthAppState extends State<HealthApp> {
                   fetchStepData();
                 },
                 icon: Icon(Icons.nordic_walking),
-              )
+              ),
+              IconButton(
+                onPressed: () {
+                  fetchHeartbeatData();
+                },
+                icon: Icon(CupertinoIcons.waveform_path_ecg),
+              ),
             ],
           ),
           body: Center(

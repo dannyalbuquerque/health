@@ -9,6 +9,7 @@ part of health;
 ///  * reading health data using the [getHealthDataFromTypes] method.
 ///  * writing health data using the [writeHealthData] method.
 ///  * accessing total step counts using the [getTotalStepsInInterval] method.
+///  * accessing heartbeat timestamps for the specified HKHeartbeatSeriesSample using the [getHeartbeatData] method. (iOS only)
 ///  * cleaning up dublicate data points via the [removeDuplicates] method.
 class HealthFactory {
   static const MethodChannel _channel = MethodChannel('flutter_health');
@@ -160,7 +161,7 @@ class HealthFactory {
     for (var i = 0; i < weights.length; i++) {
       final bmiValue = weights[i].value.toDouble() / (h * h);
       final x = HealthDataPoint(bmiValue, dataType, unit, weights[i].dateFrom,
-          weights[i].dateTo, _platformType, _deviceId!, '', '');
+          weights[i].dateTo, _platformType, _deviceId!, '', '', '');
 
       bmiHealthPoints.add(x);
     }
@@ -280,6 +281,7 @@ class HealthFactory {
       final DateTime to = DateTime.fromMillisecondsSinceEpoch(e['date_to']);
       final String sourceId = e["source_id"];
       final String sourceName = e["source_name"];
+      final String uuid = e["uuid"];
       return HealthDataPoint(
         value,
         dataType,
@@ -290,6 +292,7 @@ class HealthFactory {
         device,
         sourceId,
         sourceName,
+        uuid,
       );
     }).toList();
 
@@ -333,5 +336,49 @@ class HealthFactory {
       args,
     );
     return stepsCount;
+  }
+
+  /// Get heartbeats for the specified HKHeartbeatSeriesSample (iOS only)
+  /// Returns empty if not successful.
+  Future<List<HealthHeartbeat>> getHeartbeatData(
+    String sampleUuid,
+  ) async {
+    final args = <String, dynamic>{
+      'sampleUuid': sampleUuid,
+    };
+    final fetchedHeartbeatData = await _channel.invokeMethod(
+      'getHeartbeatData',
+      args,
+    );
+    if (fetchedHeartbeatData != null) {
+      final mesg = <String, dynamic>{
+        "sampleUuid": sampleUuid,
+        "heartbeatData": fetchedHeartbeatData,
+      };
+      const thresHold = 100;
+      // If the no. of data points are larger than the threshold,
+      // call the compute method to spawn an Isolate to do the parsing in a separate thread.
+      if (fetchedHeartbeatData.length > thresHold) {
+        return compute(_parseHeartbeatData, mesg);
+      }
+      return _parseHeartbeatData(mesg);
+    } else {
+      return <HealthHeartbeat>[];
+    }
+  }
+
+  static List<HealthHeartbeat> _parseHeartbeatData(
+      Map<String, dynamic> message) {
+    //final sampleUuid = message["sampleUuid"];
+    final heartbeatData = message["heartbeatData"];
+    final list = heartbeatData.map<HealthHeartbeat>((e) {
+      final double timeSinceSeriesStart = e['timeSinceSeriesStart'];
+      final bool precededByGap = e['precededByGap'];
+      return HealthHeartbeat(
+        timeSinceSeriesStart,
+        precededByGap,
+      );
+    }).toList();
+    return list;
   }
 }
